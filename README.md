@@ -59,3 +59,11 @@ This will start a PostgreSQL container using the configuration in the `docker-co
     ```bash
     npx prisma generate
     ```
+3. Start NATS Server
+
+    To start the NATS server, use the following command:
+
+    ```bash
+    # Docker Configuration
+    docker run -d --name nats-main -p 4222:4222 -p 6222:6222 -p 8222:8222 nats
+    ```
