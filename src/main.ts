@@ -8,9 +8,9 @@ async function bootstrap() {
   const logger = new Logger(AppModule.name + '::Orders-MS');
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(AppModule,
     {
-      transport: Transport.TCP,
+      transport: Transport.NATS,
       options: {
-        port: envs.PORT
+        servers: envs.NATS_SERVERS
       }
     }
   );
@@ -21,9 +21,9 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
     })
   );
-  
+
   await app.listen();
-  logger.log(`Microservice is listening on port: ${envs.PORT}`);
+  logger.log(`Orders Microservice is listening on port: ${envs.PORT}`);
 
 }
 bootstrap();
