@@ -1,23 +1,40 @@
-import { Catch, ArgumentsHost, ExceptionFilter } from '@nestjs/common';
+import { Catch, ArgumentsHost, ExceptionFilter, Logger, HttpStatus, BadRequestException } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
 
-@Catch(RpcException)
+@Catch(RpcException, BadRequestException)
 export class RpcCustomExceptionFilter implements ExceptionFilter {
-    catch(exception: RpcException, host: ArgumentsHost) {
-        const ctx = host.switchToHttp();
-        const response = ctx.getResponse();
+  private readonly logger = new Logger(RpcCustomExceptionFilter.name);
 
-        const rpcError = exception.getError();
+  catch(exception: RpcException | BadRequestException, host: ArgumentsHost) {
+    const ctx = host.switchToRpc();  // Cambia esto a switchToRpc ya que es un microservicio
+    const data = ctx.getData();
 
-        if (typeof rpcError === 'object' && 'status' in rpcError && 'message' in rpcError) {
-            const status = isNaN(+rpcError.status) ? 400 : +rpcError.status;
+    if (exception instanceof BadRequestException) {
+      const response = exception.getResponse();
+      this.logger.error(`Validation error: ${JSON.stringify(response)}`);
 
-            return response.status(status).json(rpcError);
-        }
+      // Si deseas manejar específicamente los detalles de BadRequestException
+      const message = (response as any).message || 'Bad Request';
+      const errors = Array.isArray(response) ? response : [message];
 
-        response.status(400).json({
-            statusCode: 400,
-            message: rpcError,
-        });
+      return {
+        statusCode: HttpStatus.BAD_REQUEST,
+        message: 'Validation failed',
+        errors,
+        data,  // Muestra los datos que estaban en la solicitud
+      };
     }
+
+    // Para otras excepciones RPC
+    if (exception instanceof RpcException) {
+      const rpcError = exception.getError();
+      this.logger.error(`RPC error: ${JSON.stringify(rpcError)}`);
+
+      return {
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: rpcError,
+        data,
+      };
+    }
+  }
 }

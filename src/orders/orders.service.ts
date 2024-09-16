@@ -1,11 +1,12 @@
 import { HttpStatus, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { PrismaClient } from '@prisma/client';
+import { OrderStatus, PrismaClient } from '@prisma/client';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
 import { OrderPaginationDto } from './dto/order-pagination.dto';
-import { ChangeOrderStatus } from './dto';
+import { ChangeOrderStatusDto, PaidOrderDto } from './dto';
 import { NAST_SERVICE, PRODUCT_SERVICE } from 'src/config';
 import { catchError, firstValueFrom } from 'rxjs';
+import { OrderWithProducts } from './interfaces/order-with-products.interface';
 
 @Injectable()
 export class OrdersService extends PrismaClient implements OnModuleInit {
@@ -167,7 +168,7 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
     }
   }
 
-  async changeStatus(changeOrderStatus: ChangeOrderStatus) {
+  async changeStatus(changeOrderStatus: ChangeOrderStatusDto) {
     try {
       const { id, status } = changeOrderStatus;
 
@@ -185,6 +186,70 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
           status
         }
       });
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
+  }
+
+  async createPaymentSession(order: OrderWithProducts) {
+    try {
+      const paymentSession = await firstValueFrom(
+        this.client.send('create.payment.session', {
+          orderId: order.id,
+          currency: 'usd',
+          items: order.OrderItem.map(item => ({
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price
+          }))
+        })
+      );
+      return paymentSession;
+    } catch (error) {
+      this.logger.error(error);
+      throw new RpcException({
+        message: error,
+        status: HttpStatus.INTERNAL_SERVER_ERROR
+      });
+    }
+  }
+
+  async paymentSucceeded(paidOrderDto: PaidOrderDto) {
+    try {
+      const { orderId } = paidOrderDto;
+      const validateIfPaid = await this.order.findFirst({
+        where: {
+          id: orderId
+        }
+      });
+      if (validateIfPaid.status === OrderStatus.PAID) {
+        return {
+          data: validateIfPaid,
+          message: 'Order already paid'
+        }
+      }
+      const order = await this.order.update({
+        where: {
+          id: orderId
+        },
+        data: {
+          status: OrderStatus.PAID,
+          paidAt: new Date(),
+          paid: true,
+          stripeChargeId: paidOrderDto.stripePaymentId,
+          OrderReceipt: {
+            create: {
+              receiptUrl: paidOrderDto.receiptUrl
+            }
+          }
+        }
+      });
+
+      return {
+        data: order,
+        message: 'Order paid successfully'
+      }
     } catch (error) {
       this.logger.error(error);
       throw error;
